@@ -8,9 +8,6 @@
 #ifndef MAIN_BLINK_H_
 #define MAIN_BLINK_H_
 //-----------------------------------------------------------------------------
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/portmacro.h"
 #include "hal/gpio_types.h"
 //-----------------------------------------------------------------------------
 #define BLINK_OFF		0x0

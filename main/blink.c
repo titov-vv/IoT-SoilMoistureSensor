@@ -4,8 +4,10 @@
  *  Created on: Oct 29, 2019
  *      Author: vtitov
  */
-
+//-----------------------------------------------------------------------------
 #include "blink.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "driver/gpio.h"
 //-----------------------------------------------------------------------------
 TaskHandle_t 	blink_task_handle = NULL;

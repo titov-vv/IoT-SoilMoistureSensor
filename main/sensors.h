@@ -1,15 +1,14 @@
 /*
- * main.h
+ * dht.h
  *
- *  Created on: Oct 4, 2020
+ *  Created on: Oct 5, 2020
  *      Author: vtitov
  */
 
-#ifndef MAIN_MAIN_H_
-#define MAIN_MAIN_H_
+#ifndef MAIN_SENSORS_H_
+#define MAIN_SENSORS_H_
 //-----------------------------------------------------------------------------
-// Define TAGs for log messages
-#define	TAG_MAIN	"APP"
-#define TAG_SNS	"SNS"
+// Function to initiate sensors polling
+void sensors_start();
 //-----------------------------------------------------------------------------
-#endif /* MAIN_MAIN_H_ */
+#endif /* MAIN_SENSORS_H_ */

@@ -18,6 +18,7 @@
 // Project
 #include "main.h"
 #include "blink.h"
+#include "sensors.h"
 //-----------------------------------------------------------------------------
 void app_main(void)
 {
@@ -28,5 +29,7 @@ void app_main(void)
 	ESP_LOGI(TAG_MAIN, "Event loop created");
 
 	blink_start(BLINK_SLOW);
+
+	sensors_start();
 }
 //-----------------------------------------------------------------------------
