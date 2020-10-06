@@ -8,7 +8,6 @@
 	- Publish data into cloud with regards to settings
 */
 //-----------------------------------------------------------------------------
-#include "../build/config/sdkconfig.h"
 // Espressif
 #include "esp_system.h"
 #include "esp_spi_flash.h"
