@@ -1,0 +1,5 @@
+# Data to be stored in device Non-Volatile Storage
+key,type,encoding,value
+PARAMETERS,namespace,,
+WiFi_SSID,data,string,<wifi_ssid>
+WiFi_Password,data,string,<wifi_password>

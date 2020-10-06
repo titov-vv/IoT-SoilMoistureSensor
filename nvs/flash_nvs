@@ -1,0 +1,5 @@
+#!/bin/bash
+$IDF_PATH/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py generate nvs_data.csv nvs.bin 0x3000
+NVS_START_ADDR=$(gen_esp32part.py ../build/partition_table/partition-table.bin | grep nvs | awk  -F "," '{ print $4 }')
+echo "NVS partition start: $NVS_START_ADDR"
+esptool.py -p /dev/ttyUSB0 --before default_reset --after no_reset write_flash $NVS_START_ADDR nvs.bin

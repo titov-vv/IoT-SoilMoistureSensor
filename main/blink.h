@@ -1,10 +1,3 @@
-/*
- * blink.h
- *
- *  Created on: Oct 29, 2019
- *      Author: vtitov
- */
-
 #ifndef MAIN_BLINK_H_
 #define MAIN_BLINK_H_
 //-----------------------------------------------------------------------------

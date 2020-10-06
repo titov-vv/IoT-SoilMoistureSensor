@@ -1,9 +1,3 @@
-/*
- * blink.c
- *
- *  Created on: Oct 29, 2019
- *      Author: vtitov
- */
 //-----------------------------------------------------------------------------
 #include "blink.h"
 #include "freertos/FreeRTOS.h"

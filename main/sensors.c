@@ -1,9 +1,3 @@
-/*
- * dht.c
- *
- *  Created on: Oct 5, 2020
- *      Author: vtitov
- */
 //-----------------------------------------------------------------------------
 #include "main.h"
 #include "sensors.h"
@@ -15,6 +9,7 @@
 #include "driver/adc.h"
 #include "esp_log.h"
 #include "esp32/rom/ets_sys.h"
+#include "esp_sleep.h"
 //-----------------------------------------------------------------------------
 #define TIMEOUT             UINT32_MAX
 // Light sensor connection details - use default ESP32 I2C pins
@@ -103,6 +98,7 @@ void read_DHT11(void)
 void read_sensor_task(void *arg)
 {
 	int moisture;
+	int run = 0;
 
 	/* Wait 1 seconds to pass DHT11 instability */
 	vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -117,6 +113,14 @@ void read_sensor_task(void *arg)
 		read_DHT11();
 
 		vTaskDelay(POLL_INTERVAL / portTICK_RATE_MS);
+
+		run++;
+		if (run >10)
+		{
+			ESP_LOGI(TAG_SNS, "--- SLEEP 10 sec ---");
+			esp_sleep_enable_timer_wakeup(10*1000*1000);
+			esp_deep_sleep_start();
+		}
 	}
 	vTaskDelete(NULL);
 }
