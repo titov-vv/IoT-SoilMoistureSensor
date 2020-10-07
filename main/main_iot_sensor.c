@@ -97,7 +97,4 @@ void app_main(void)
 	aws_start();
 }
 //-----------------------------------------------------------------------------
-//#include "esp_sleep.h"
-//			ESP_LOGI(TAG_SNS, "--- SLEEP 10 sec ---");
-//			esp_sleep_enable_timer_wakeup(10*1000*1000);
-//			esp_deep_sleep_start();
+

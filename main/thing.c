@@ -4,6 +4,7 @@
 #include "blink.h"
 
 #include <string.h>
+#include "esp_sleep.h"
 #include "driver/gpio.h"
 #include "aws_iot_mqtt_client_interface.h"
 #include "cJSON.h"
@@ -11,9 +12,12 @@
 #define MAX_JSON_SIZE		512
 #define MAX_SERVER_TIMEOUT	30000
 #define JSON_INTERVAL		"interval"
+#define PUBLISH_INTERVAL	10000	// data publish interval in ms
 //-----------------------------------------------------------------------------
 static bool update_needed = true;
 static bool update_inprogress = false;
+static bool shadow_received = false; // This will be set to true as we update parameters from AWS
+static bool data_published = false;  // This will be set true when sensor data will be published
 static uint32_t publish_time = 0;
 static uint32_t last_poll_time = 0;
 // Topic names should be static as it will be lost from stack after exit from subscription function
@@ -26,14 +30,11 @@ static char sensor_topic[URL_BUF_LEN];
 static int		delta_tag = 0x01;
 static int		accepted_tag = 0x02;
 static int		rejected_tag = 0x03;
-// Thing status variables that are mirrored in Shadow
-static int interval = 60;
+// This variable is mirrored in the thing shadow - we don't know right value so will start with 0 - i.e. no updates
+static int interval = 0;
 //-----------------------------------------------------------------------------
 // Global variable to keep Cloud connection reference
 static AWS_IoT_Client aws_client;
-//-----------------------------------------------------------------------------
-// how often to publish data to the cloud, s
-#define AWS_PUB_INTERVAL	300
 //-----------------------------------------------------------------------------
 TaskHandle_t aws_iot_task_handle = NULL;
 //-----------------------------------------------------------------------------
@@ -70,7 +71,7 @@ void poll_sensor_and_update(AWS_IoT_Client *client)
 	cJSON_Delete(root);
 	ESP_LOGI(TAG_AWS, "JSON message: %s", JSON_buffer);
 
-	ESP_LOGI(TAG_AWS, "MQTT publish to: %s", update_topic);
+	ESP_LOGI(TAG_AWS, "MQTT publish to: %s", sensor_topic);
 	IoT_Publish_Message_Params paramsQOS0;
 	paramsQOS0.qos = QOS0;
 	paramsQOS0.isRetained = 0;
@@ -78,7 +79,10 @@ void poll_sensor_and_update(AWS_IoT_Client *client)
 	paramsQOS0.payloadLen = strlen(JSON_buffer);
 	res = aws_iot_mqtt_publish(client, sensor_topic, strlen(sensor_topic), &paramsQOS0);
 	if (res == SUCCESS)
+	{
 		ESP_LOGI(TAG_AWS, "MQTT message published");
+		data_published = true;
+	}
 	else
 		ESP_LOGE(TAG_AWS, "MQTT publish failure: %d ", res);
 
@@ -87,7 +91,7 @@ void poll_sensor_and_update(AWS_IoT_Client *client)
 //-----------------------------------------------------------------------------
 static void aws_disconnect_handler(AWS_IoT_Client *pClient, void *data)
 {
-    ESP_LOGW(TAG_AWS, "MQTT Disconnected. Lamp is off");
+    ESP_LOGW(TAG_AWS, "MQTT Disconnected");
 
     update_needed = true;
     update_inprogress = false;
@@ -134,6 +138,7 @@ static void delta_callback(AWS_IoT_Client *pClient, char *topicName, uint16_t to
         {
         	ESP_LOGI(TAG_AWS, "Interval set to: %d, s", value->valueint);
         	interval = value->valueint;
+        	shadow_received = true;
         	update_needed = true;
         }
     }
@@ -323,10 +328,13 @@ void aws_iot_task(void *arg)
 				if (update_needed)
 					update_shadow(&aws_client);
 			}
-			if (((xTaskGetTickCount() * portTICK_RATE_MS) - last_poll_time) > (interval * 1000))
+			if (interval > 0)  // Publish data every PUBLISH_INTERVAL
 			{
-				poll_sensor_and_update(&aws_client);
+				if (((xTaskGetTickCount() * portTICK_RATE_MS) - last_poll_time) > PUBLISH_INTERVAL)
+					poll_sensor_and_update(&aws_client);
 			}
+			else
+				data_published = true;
 			break;
 		case NETWORK_ATTEMPTING_RECONNECT:		// Automatic re-connect is in progress
 			vTaskDelay(1000 / portTICK_RATE_MS);
@@ -351,22 +359,28 @@ void aws_iot_task(void *arg)
 			else
 			{
 				retry_cnt++;
-				vTaskDelay(2000*retry_cnt / portTICK_RATE_MS);
-				if (retry_cnt > 32)
+				vTaskDelay(5000 / portTICK_RATE_MS);
+				if (retry_cnt > 5)
 				{
-					retry_cnt = 0;
-					vTaskDelay(3600000 / portTICK_RATE_MS); // suspend activity for 1 hour
+					ESP_LOGW(TAG_AWS, "MQTT connection attempt failed. Go to sleep for 10 min");
+					esp_sleep_enable_timer_wakeup(600*1000*1000);
+					esp_deep_sleep_start();
 				}
 			}
 			continue;
 			break;
 		default:
 			ESP_LOGE(TAG_AWS, "Unexpected error in main loop: %d", res);
-			//vTaskDelete(NULL);
 		}
 
-		//// ESP_LOGI(TAG_AWS, "Stack remaining: %d bytes", uxTaskGetStackHighWaterMark(NULL));
 		vTaskDelay(100 / portTICK_RATE_MS);
+
+		if (data_published && shadow_received)
+		{
+			ESP_LOGI(TAG_AWS, "Task completed. Go to sleep for %d seconds", interval);
+			esp_sleep_enable_timer_wakeup(interval*1000*1000);
+			esp_deep_sleep_start();
+		}
 	}
 
 	vTaskDelete(NULL);
@@ -391,6 +405,11 @@ void aws_start()
 {
 	aws_topics_setup();
 	ESP_LOGI(TAG_AWS, "Names for topics were initialized.");
+	ESP_LOGI(TAG_AWS, "update: %s", update_topic);
+	ESP_LOGI(TAG_AWS, "delta: %s", delta_topic);
+	ESP_LOGI(TAG_AWS, "accepted: %s", accepted_topic);
+	ESP_LOGI(TAG_AWS, "rejected: %s", rejected_topic);
+	ESP_LOGI(TAG_AWS, "sensor: %s", sensor_topic);
 
 	xTaskCreate(aws_iot_task, "aws_iot_task", 20480, (void *)0, 5, NULL);
 }
