@@ -80,11 +80,11 @@ void poll_sensor_and_update(AWS_IoT_Client *client)
 	res = aws_iot_mqtt_publish(client, sensor_topic, strlen(sensor_topic), &paramsQOS0);
 	if (res == SUCCESS)
 	{
-		ESP_LOGI(TAG_AWS, "MQTT message published");
+		ESP_LOGI(TAG_AWS, "MQTT sensor data published");
 		data_published = true;
 	}
 	else
-		ESP_LOGE(TAG_AWS, "MQTT publish failure: %d ", res);
+		ESP_LOGE(TAG_AWS, "MQTT sensor data publish failure: %d ", res);
 
 	last_poll_time = xTaskGetTickCount() * portTICK_RATE_MS;
 }
@@ -289,12 +289,12 @@ void update_shadow(AWS_IoT_Client *client)
     if (res == SUCCESS)
     {
     	publish_time = xTaskGetTickCount() * portTICK_RATE_MS;
-    	ESP_LOGI(TAG_AWS, "MQTT message published");
+    	ESP_LOGI(TAG_AWS, "MQTT shadow update published");
     	update_needed = false;
     	update_inprogress = true;
     }
     else
-      	ESP_LOGE(TAG_AWS, "MQTT publish failure: %d ", res);
+      	ESP_LOGE(TAG_AWS, "MQTT shadow update publish failure: %d ", res);
 }
 //-----------------------------------------------------------------------------
 void aws_iot_task(void *arg)
@@ -329,21 +329,27 @@ void aws_iot_task(void *arg)
 				if (update_needed)
 					update_shadow(&aws_client);
 			}
-			if (interval > 0)  // Publish data every PUBLISH_INTERVAL
-			{
-				if (((xTaskGetTickCount() * portTICK_RATE_MS) - last_poll_time) > PUBLISH_INTERVAL)
-					poll_sensor_and_update(&aws_client);
-			}
-			else
-				data_published = true;
+			if (((xTaskGetTickCount() * portTICK_RATE_MS) - last_poll_time) > PUBLISH_INTERVAL)
+				poll_sensor_and_update(&aws_client);
 			break;
+
 		case NETWORK_ATTEMPTING_RECONNECT:		// Automatic re-connect is in progress
 			vTaskDelay(1000 / portTICK_RATE_MS);
 			continue;
 			break;
+
+		case NETWORK_MANUALLY_DISCONNECTED:
+			if (data_published && shadow_received)
+			{
+				ESP_LOGI(TAG_AWS, "Task completed. Go to sleep for %d seconds", interval);
+				esp_sleep_enable_timer_wakeup((uint64_t)interval*1000*1000);
+				esp_deep_sleep_start();
+			}
+			break;
+
 		case NETWORK_DISCONNECTED_ERROR:		// No connection available and need to connect
 		case NETWORK_RECONNECT_TIMED_OUT_ERROR:
-			ESP_LOGW(TAG_AWS, "No MQTT connection available.");
+			ESP_LOGW(TAG_AWS, "No MQTT connection available. Connecting...");
 			update_inprogress = false;
 			if (connect_mqtt(&aws_client) == SUCCESS)
 			{
@@ -371,17 +377,18 @@ void aws_iot_task(void *arg)
 			continue;
 			break;
 		default:
-			ESP_LOGE(TAG_AWS, "Unexpected error in main loop: %d", res);
+			if (res <0 ) // Here is some error and normal event
+				ESP_LOGE(TAG_AWS, "Unexpected error in main loop: %d", res);
+		}
+
+		if (shadow_received && data_published)
+		{
+			vTaskDelay(3000 / portTICK_RATE_MS);	// Wait 3 seconds to allow some network race conditions
+			aws_iot_mqtt_disconnect(&aws_client);
+			ESP_LOGI(TAG_AWS, "MQTT connection is closed");
 		}
 
 		vTaskDelay(100 / portTICK_RATE_MS);
-
-		if (data_published && shadow_received)
-		{
-			ESP_LOGI(TAG_AWS, "Task completed. Go to sleep for %d seconds", interval);
-			esp_sleep_enable_timer_wakeup(interval*1000*1000);
-			esp_deep_sleep_start();
-		}
 	}
 
 	vTaskDelete(NULL);
