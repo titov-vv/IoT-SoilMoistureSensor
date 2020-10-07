@@ -8,6 +8,7 @@
 #include "esp_spi_flash.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_sleep.h"
 #include "esp_log.h"
 #include "esp_sntp.h"
 #include "tcpip_adapter.h"
@@ -50,6 +51,13 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 			break;
 		}
 	}
+
+	if (wifi_retry > 30) // can't connect for more than a minute
+	{
+		ESP_LOGE(TAG_WIFI, "WiFi connection attempt failed. Go to sleep for 10 min");
+		esp_sleep_enable_timer_wakeup(600*1000*1000);
+		esp_deep_sleep_start();
+	}
 }
 //-----------------------------------------------------------------------------
 void ntp_event_callback(struct timeval *tv)
@@ -61,6 +69,7 @@ void ntp_event_callback(struct timeval *tv)
 	{
 		xEventGroupSetBits(events_group, READY_BIT);
 		ESP_LOGI(TAG_WIFI, "Time sync completed");
+		set_blink_pattern(BLINK_SLOW);
 	}
 	else
 		ESP_LOGI(TAG_WIFI, "NTP notification, status: %d", sync_status);
@@ -71,6 +80,7 @@ void wifi_and_ntp_task(void *arg)
 	time_t now;
 	struct tm timeinfo;
 	char strftime_buf[64];
+	EventBits_t uxBits;
 
 	ESP_LOGI(TAG_WIFI, "Initialization started");
 	setenv("TZ", DEVICE_TIMEZONE, 1);
@@ -100,10 +110,16 @@ void wifi_and_ntp_task(void *arg)
 
 	while(1)
 	{
-		set_blink_pattern(BLINK_FAST);
+		set_blink_pattern(BLINK_MID);
 		esp_wifi_connect();
 
-		xEventGroupWaitBits(events_group, IP_UP_BIT, false, true, portMAX_DELAY);
+		uxBits = xEventGroupWaitBits(events_group, IP_UP_BIT, false, true, 60000 / portTICK_RATE_MS);
+		if ((uxBits & IP_UP_BIT) == 0)   // NTP was not completed successfully
+		{
+			ESP_LOGE(TAG_WIFI, "Failed to get IP from DHCP. Go to sleep for 1 min");
+			esp_sleep_enable_timer_wakeup(60*1000*1000);
+			esp_deep_sleep_start();
+		}
 		ESP_LOGI(TAG_WIFI, "IP link is up. Getting time from NTP...");
 
 	    ESP_LOGI(TAG_WIFI, "Initializing SNTP");
@@ -112,8 +128,14 @@ void wifi_and_ntp_task(void *arg)
 	    sntp_set_time_sync_notification_cb(ntp_event_callback);
 	    sntp_init();
 
-	    ESP_LOGI(TAG_WIFI, "Waiting for NTP sync...");
-	    xEventGroupWaitBits(events_group, READY_BIT, false, true, portMAX_DELAY);
+	    ESP_LOGI(TAG_WIFI, "Waiting for NTP sync...");  // max wait is 1 minute
+	    uxBits = xEventGroupWaitBits(events_group, READY_BIT, false, true, 60000 / portTICK_RATE_MS);
+	    if ((uxBits & READY_BIT) == 0)   // NTP was not completed successfully
+	    {
+	    	ESP_LOGE(TAG_WIFI, "Failed to get time from NTP. Go to sleep for 10 min");
+	    	esp_sleep_enable_timer_wakeup(600*1000*1000);
+	    	esp_deep_sleep_start();
+	    }
 
 	    sntp_stop();
 		time(&now);
@@ -130,6 +152,6 @@ void wifi_and_ntp_task(void *arg)
 //-----------------------------------------------------------------------------
 void wifi_start()
 {
-	xTaskCreate(wifi_and_ntp_task, "ntp_task", 8192, (void *)0, 5, NULL);
+	xTaskCreate(wifi_and_ntp_task, "network_task", 8192, (void *)0, 5, NULL);
 }
 //-----------------------------------------------------------------------------

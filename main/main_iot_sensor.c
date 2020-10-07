@@ -88,7 +88,7 @@ void app_main(void)
 	data_queue = xQueueCreate(QUEUE_LENGTH, QUEUE_ITEM_SIZE);
 	ESP_LOGI(TAG_MAIN, "Queue and event group initialized");
 
-	blink_start(BLINK_SLOW);
+	blink_start(BLINK_FAST);
 
 	wifi_start();
 

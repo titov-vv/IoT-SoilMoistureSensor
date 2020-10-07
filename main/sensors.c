@@ -3,6 +3,7 @@
 #include "sensors.h"
 
 #include <time.h>
+#include <math.h>
 #include "hal/gpio_types.h"
 #include "driver/gpio.h"
 #include "driver/adc.h"
@@ -110,7 +111,7 @@ void read_sensor_task(void *arg)
 	while(1)
 	{
 		int moisture = adc1_get_raw(MOISTURE_ADC_CH);
-		measured_data.moisture = 3.6 * moisture / 4095;
+		measured_data.moisture = round(3600 * moisture / 4095)/1000; // Round is used to keep only 3 decimal places
 		ESP_LOGI(TAG_SNS, "Moisture: %.2f", measured_data.moisture);
 
 		read_DHT11();

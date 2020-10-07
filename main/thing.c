@@ -314,6 +314,7 @@ void aws_iot_task(void *arg)
 		case SUCCESS:
 		case NETWORK_RECONNECTED:
 			retry_cnt = 0;
+			set_blink_pattern(BLINK_ON);
 			if (update_inprogress)
 			{
 				if (((xTaskGetTickCount() * portTICK_RATE_MS) - publish_time) > MAX_SERVER_TIMEOUT)
@@ -362,7 +363,7 @@ void aws_iot_task(void *arg)
 				vTaskDelay(5000 / portTICK_RATE_MS);
 				if (retry_cnt > 5)
 				{
-					ESP_LOGW(TAG_AWS, "MQTT connection attempt failed. Go to sleep for 10 min");
+					ESP_LOGE(TAG_AWS, "MQTT connection attempt failed. Go to sleep for 10 min");
 					esp_sleep_enable_timer_wakeup(600*1000*1000);
 					esp_deep_sleep_start();
 				}
