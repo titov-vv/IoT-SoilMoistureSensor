@@ -45,14 +45,16 @@ extern char aws_root_ca_pem[];
 extern char certificate_pem_crt[];
 extern char private_pem_key[];
 //-----------------------------------------------------------------------------
-// Queue setup to exchange measurement data between I2C and AWS tasks
+// Queue setup to exchange measurement data between sensors and AWS tasks
 typedef struct
 {
-	time_t 	timestamp;
-    double	data_lux;
-} LightMeasurement_t;
+	time_t timestamp;
+    double moisture;
+    double temperature;
+    double humidity;
+} Measurements_t;
 #define QUEUE_LENGTH    1
-#define QUEUE_ITEM_SIZE sizeof(LightMeasurement_t)
+#define QUEUE_ITEM_SIZE sizeof(Measurements_t)
 extern QueueHandle_t 	data_queue;
 //-----------------------------------------------------------------------------
 #endif /* MAIN_MAIN_H_ */

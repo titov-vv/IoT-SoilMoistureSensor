@@ -4,15 +4,9 @@
 // THING SHADOW EXAMPLE
 //{
 //  "desired": {
-//    "moisture": 2.34,
-//    "temperature": 23.2,
-//    "humidity": 65.0,
 //    "interval": 60
 //  },
 //  "reported": {
-//    "moisture": 2.34,
-//    "temperature": 23.2,
-//    "humidity": 65.0,
 //    "interval": 60
 //  }
 //}

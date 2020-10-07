@@ -10,9 +10,6 @@
 //-----------------------------------------------------------------------------
 #define MAX_JSON_SIZE		512
 #define MAX_SERVER_TIMEOUT	30000
-#define JSON_VERBOSE		"verbose"
-#define JSON_NIGH_MARGIN	"high_margin"
-#define JSON_LOW_MARGIN		"low_margin"
 #define JSON_INTERVAL		"interval"
 //-----------------------------------------------------------------------------
 static bool update_needed = true;
@@ -30,10 +27,6 @@ static int		delta_tag = 0x01;
 static int		accepted_tag = 0x02;
 static int		rejected_tag = 0x03;
 // Thing status variables that are mirrored in Shadow
-static double last_measurement = -1;
-static int verbose = 0;
-static double high_margin = 3000;
-static double low_margin = 500;
 static int interval = 60;
 //-----------------------------------------------------------------------------
 // Global variable to keep Cloud connection reference
@@ -44,14 +37,13 @@ static AWS_IoT_Client aws_client;
 //-----------------------------------------------------------------------------
 TaskHandle_t aws_iot_task_handle = NULL;
 //-----------------------------------------------------------------------------
-// Get data from I2C queue
+// Get data from sensors queue
 // If verbose = 1 publish it to the cloud
 // Check data across margin - publish to the cloud if crossed
 void poll_sensor_and_update(AWS_IoT_Client *client)
 {
 	IoT_Error_t res = FAILURE;
-	int low = 0, high = 0;
-	LightMeasurement_t measurement;
+	Measurements_t measurement;
 	cJSON *root;
 	char JSON_buffer[MAX_JSON_SIZE];
 
@@ -60,53 +52,36 @@ void poll_sensor_and_update(AWS_IoT_Client *client)
 		ESP_LOGE(TAG_AWS, "Sensor queue is empty");
 		return;
 	}
-	ESP_LOGI(TAG_AWS, "Measurement received: %f", measurement.data_lux);
+	ESP_LOGI(TAG_AWS, "Measurements received: %.1f V, %.1f C, %.1f %%",
+			measurement.moisture, measurement.temperature, measurement.humidity);
 
-// Check margins
-	if ((measurement.data_lux > high_margin) && (last_measurement <= high_margin))
-	{
-		high = 1;
-		ESP_LOGI(TAG_AWS, "High margin[%f] crossed: %f -> %f", high_margin, last_measurement, measurement.data_lux);
-	}
-	if ((measurement.data_lux < low_margin) && ((last_measurement >= low_margin) || (last_measurement < 0)))
-	{
-		low = 1;
-		ESP_LOGI(TAG_AWS, "Low margin[%f] crossed: %f <- %f", high_margin, measurement.data_lux, last_measurement);
-	}
-
-	if ((verbose ==  1) || (high == 1) || (low == 1))
-	{
 	// Create JSON to publish into sensor_topic[]
-	// { "light_level": 12.345, "high_crossed": 1, "low_crossed": 1, "timestamp" xxxxxx }
-	// "*_crossed" part is optional
-		root = cJSON_CreateObject();
-		cJSON_AddNumberToObject(root, "light_level", measurement.data_lux);
-		if (high == 1) // Condition here is to prevent AWS rule firing due to 0 values in verbose mode
-			cJSON_AddNumberToObject(root, "high_crossed", high);
-		if (low == 1)  // Condition here is to prevent AWS rule firing due to 0 values in verbose mode
-			cJSON_AddNumberToObject(root, "low_crossed", low);
-		cJSON_AddNumberToObject(root, "timestamp", measurement.timestamp);
-		if (!cJSON_PrintPreallocated(root, JSON_buffer, MAX_JSON_SIZE, 0 /* not formatted */))
-		{
-			ESP_LOGW(TAG_AWS, "JSON buffer too small");
-			JSON_buffer[0] = 0;
-		}
-		cJSON_Delete(root);
-		ESP_LOGI(TAG_AWS, "JSON message: %s", JSON_buffer);
-
-		ESP_LOGI(TAG_AWS, "MQTT publish to: %s", update_topic);
-		IoT_Publish_Message_Params paramsQOS0;
-		paramsQOS0.qos = QOS0;
-		paramsQOS0.isRetained = 0;
-		paramsQOS0.payload = (void *) JSON_buffer;
-		paramsQOS0.payloadLen = strlen(JSON_buffer);
-		res = aws_iot_mqtt_publish(client, sensor_topic, strlen(sensor_topic), &paramsQOS0);
-		if (res == SUCCESS)
-			ESP_LOGI(TAG_AWS, "MQTT message published");
-		else
-			ESP_LOGE(TAG_AWS, "MQTT publish failure: %d ", res);
+	// { "moisture": 2.34, "temperature": 10.2, "humidity": 60.3, "timestamp" xxxxxx }
+	root = cJSON_CreateObject();
+	cJSON_AddNumberToObject(root, "moisture", measurement.moisture);
+	cJSON_AddNumberToObject(root, "temperature", measurement.temperature);
+	cJSON_AddNumberToObject(root, "humidity", measurement.humidity);
+	cJSON_AddNumberToObject(root, "timestamp", measurement.timestamp);
+	if (!cJSON_PrintPreallocated(root, JSON_buffer, MAX_JSON_SIZE, 0 /* not formatted */))
+	{
+		ESP_LOGW(TAG_AWS, "JSON buffer too small");
+		JSON_buffer[0] = 0;
 	}
-    last_measurement = measurement.data_lux;
+	cJSON_Delete(root);
+	ESP_LOGI(TAG_AWS, "JSON message: %s", JSON_buffer);
+
+	ESP_LOGI(TAG_AWS, "MQTT publish to: %s", update_topic);
+	IoT_Publish_Message_Params paramsQOS0;
+	paramsQOS0.qos = QOS0;
+	paramsQOS0.isRetained = 0;
+	paramsQOS0.payload = (void *) JSON_buffer;
+	paramsQOS0.payloadLen = strlen(JSON_buffer);
+	res = aws_iot_mqtt_publish(client, sensor_topic, strlen(sensor_topic), &paramsQOS0);
+	if (res == SUCCESS)
+		ESP_LOGI(TAG_AWS, "MQTT message published");
+	else
+		ESP_LOGE(TAG_AWS, "MQTT publish failure: %d ", res);
+
 	last_poll_time = xTaskGetTickCount() * portTICK_RATE_MS;
 }
 //-----------------------------------------------------------------------------
@@ -146,37 +121,6 @@ static void delta_callback(AWS_IoT_Client *pClient, char *topicName, uint16_t to
     if (state == NULL)
     {
       	ESP_LOGE(TAG_AWS, "No 'state' found in delta update");
-    }
-
-    value = cJSON_GetObjectItemCaseSensitive(state, JSON_VERBOSE);
-    if (cJSON_IsNumber(value))
-    {
-    	if ((value->valueint != 0)&&(value->valueint != 1))
-    	{
-    		ESP_LOGE(TAG_AWS, "Bad verbose value: %d", value->valueint);
-    	}
-    	else
-    	{
-    		ESP_LOGI(TAG_AWS, "Verbose set to: %d", value->valueint);
-    		verbose = value->valueint;
-    		update_needed = true;
-    	}
-    }
-
-    value = cJSON_GetObjectItemCaseSensitive(state, JSON_NIGH_MARGIN);
-    if (cJSON_IsNumber(value))
-    {
-    	ESP_LOGI(TAG_AWS, "High margin set to: %f, lux", value->valuedouble);
-        high_margin = value->valuedouble;
-        update_needed = true;
-    }
-
-    value = cJSON_GetObjectItemCaseSensitive(state, JSON_LOW_MARGIN);
-    if (cJSON_IsNumber(value))
-    {
-    	ESP_LOGI(TAG_AWS, "Low margin set to: %f, lux", value->valuedouble);
-        low_margin = value->valuedouble;
-        update_needed = true;
     }
 
     value = cJSON_GetObjectItemCaseSensitive(state, JSON_INTERVAL);
@@ -314,16 +258,13 @@ void update_shadow(AWS_IoT_Client *client)
 	char JSON_buffer[MAX_JSON_SIZE];
 
 // Post following JSON for update
-// { "state": { "reported": { JSON_VERBOSE: 0, JSON_NIGH_MARGIN: 100.0, JSON_LOW_MARGIN: 25.0, JSON_INTERVAL: 60}}}
+// { "state": { "reported": { JSON_INTERVAL: 60}}}
 	ESP_LOGI(TAG_AWS, "Report current state");
 	root = cJSON_CreateObject();
 	state = cJSON_CreateObject();
 	cJSON_AddItemToObject(root, "state", state);
 	reported = cJSON_CreateObject();
 	cJSON_AddItemToObject(state, "reported", reported);
-	cJSON_AddNumberToObject(reported, JSON_VERBOSE, verbose);
-	cJSON_AddNumberToObject(reported, JSON_NIGH_MARGIN, high_margin);
-	cJSON_AddNumberToObject(reported, JSON_LOW_MARGIN, low_margin);
 	cJSON_AddNumberToObject(reported, JSON_INTERVAL, interval);
 	if (!cJSON_PrintPreallocated(root, JSON_buffer, MAX_JSON_SIZE, 0 /* not formatted */))
 	{

@@ -2,14 +2,12 @@
 #include "main.h"
 #include "sensors.h"
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <time.h>
 #include "hal/gpio_types.h"
 #include "driver/gpio.h"
 #include "driver/adc.h"
 #include "esp_log.h"
 #include "esp32/rom/ets_sys.h"
-#include "esp_sleep.h"
 //-----------------------------------------------------------------------------
 #define TIMEOUT             UINT32_MAX
 // Light sensor connection details - use default ESP32 I2C pins
@@ -19,6 +17,9 @@
 // Sensors polling interval
 #define POLL_INTERVAL	5000
 #define DHT11_MAX_POLL	100
+//-----------------------------------------------------------------------------
+// Structure to store data from measurements
+static Measurements_t measured_data;
 //-----------------------------------------------------------------------------
 // Waits for pulse with expected level (0 or 1)
 // Returns: length of pulse (approx. in us) or TIMEOUT otherwise
@@ -35,12 +36,16 @@ uint32_t expectPulse(uint32_t level)
 	return count;
 }
 //-----------------------------------------------------------------------------
+// Get humidity and temperature values from attached DHT11 sensor
 void read_DHT11(void)
 {
-	double humidity, temperature;
 	uint8_t data[5] = { 0, 0, 0, 0, 0 };
 	uint32_t pulse_lo, pulse_hi;
 	uint8_t chksum;
+
+	// Reset data
+	measured_data.temperature = 0;
+	measured_data.humidity = -1;
 
 	// Send DHT11 start signal (low 20 ms, then high for 40 us)
 	gpio_set_direction(DHT11_PIN, GPIO_MODE_OUTPUT);
@@ -88,39 +93,33 @@ void read_DHT11(void)
 	}
 
 	// Convert to human-readable values
-	humidity = data[0] + (0.1 * data[1]);
-	temperature = data[2] + (0.1 * (data[3] & 0x7f));
+	measured_data.humidity = data[0] + (0.1 * data[1]);
+	measured_data.temperature = data[2] + (0.1 * (data[3] & 0x7f));
 	if (data[3] & 0x80)  // negative temperature
-		temperature = - temperature;
-	ESP_LOGI(TAG_SNS, "Humidity: %.1f, %%; Temperature: %.1f, C", humidity, temperature);
+		measured_data.temperature = - measured_data.temperature;
+	ESP_LOGI(TAG_SNS, "Humidity: %.1f, %%", measured_data.humidity);
+	ESP_LOGI(TAG_SNS, "Temperature: %.1f, C", measured_data.temperature);
 }
 //-----------------------------------------------------------------------------
 void read_sensor_task(void *arg)
 {
-	int moisture;
-	int run = 0;
-
-	/* Wait 1 seconds to pass DHT11 instability */
+	/* Wait 1 second to pass DHT11 instability */
 	vTaskDelay(1000 / portTICK_PERIOD_MS);
 
 	// do job forever
 	while(1)
 	{
-		moisture = adc1_get_raw(MOISTURE_ADC_CH);
-
-		ESP_LOGI(TAG_SNS, "Moisture: %.2f", (3300.0 - moisture)/18.0);
+		int moisture = adc1_get_raw(MOISTURE_ADC_CH);
+		measured_data.moisture = 3.6 * moisture / 4095;
+		ESP_LOGI(TAG_SNS, "Moisture: %.2f", measured_data.moisture);
 
 		read_DHT11();
 
-		vTaskDelay(POLL_INTERVAL / portTICK_RATE_MS);
+		// send data to thing
+		time(&measured_data.timestamp);
+		xQueueOverwrite(data_queue, &measured_data);
 
-		run++;
-		if (run >10)
-		{
-			ESP_LOGI(TAG_SNS, "--- SLEEP 10 sec ---");
-			esp_sleep_enable_timer_wakeup(10*1000*1000);
-			esp_deep_sleep_start();
-		}
+		vTaskDelay(POLL_INTERVAL / portTICK_RATE_MS);
 	}
 	vTaskDelete(NULL);
 }
@@ -131,7 +130,7 @@ void sensors_start()
 	ESP_ERROR_CHECK(adc1_config_channel_atten(MOISTURE_ADC_CH, ADC_ATTEN_DB_11)); // 0 - 3.6 V - as +2.65V was observed on a pin
 
 	// Create highest priority task as it is time critical when we poll DHT11
-	xTaskCreate(read_sensor_task, "dht11_task", 4096, (void *)0, configMAX_PRIORITIES-1, NULL);
+	xTaskCreate(read_sensor_task, "sensors_task", 4096, (void *)0, configMAX_PRIORITIES-1, NULL);
 	ESP_LOGI(TAG_SNS, "Task created");
 }
 //-----------------------------------------------------------------------------
