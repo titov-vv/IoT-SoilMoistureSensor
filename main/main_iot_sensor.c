@@ -21,12 +21,50 @@
 #include "blink.h"
 #include "wifi.h"
 #include "sensors.h"
+#include "thing.h"
 //-----------------------------------------------------------------------------
 // FreeRTOS event group to to synchronize between tasks
 EventGroupHandle_t 	events_group;
+// FreeRTOS queue to make a data flow from sensor to thing
+QueueHandle_t 		data_queue;
+//-----------------------------------------------------------------------------
+// Global variables
+char WIFI_SSID[STRING_BUF_LEN];
+char WIFI_PASSWORD[STRING_BUF_LEN];
+char AWS_host[URL_BUF_LEN];
+uint16_t AWS_port;
+char AWS_clientID[STRING_BUF_LEN];
+char aws_root_ca_pem[CERT_BUF_LEN];
+char certificate_pem_crt[CERT_BUF_LEN];
+char private_pem_key[CERT_BUF_LEN];
+//-----------------------------------------------------------------------------
+void load_parameters_from_nvs(void)
+{
+	nvs_handle_t h_nvs;
+	unsigned int buf_len;
 
-char WIFI_SSID[32];
-char WIFI_PASSWORD[64];
+	ESP_ERROR_CHECK(nvs_flash_init());
+	ESP_LOGI(TAG_MAIN, "Flash initialized");
+	ESP_ERROR_CHECK(nvs_open("PARAMETERS", NVS_READWRITE, &h_nvs));
+	buf_len = STRING_BUF_LEN;
+	ESP_ERROR_CHECK(nvs_get_str(h_nvs, "WiFi_SSID", WIFI_SSID, &buf_len));
+	buf_len = STRING_BUF_LEN;
+	ESP_ERROR_CHECK(nvs_get_str(h_nvs, "WiFi_Password", WIFI_PASSWORD, &buf_len));
+	buf_len=URL_BUF_LEN;
+	ESP_ERROR_CHECK(nvs_get_str(h_nvs, "AWS_host", AWS_host, &buf_len));
+	ESP_ERROR_CHECK(nvs_get_u16(h_nvs, "AWS_port", &AWS_port));
+	buf_len = STRING_BUF_LEN;
+	ESP_ERROR_CHECK(nvs_get_str(h_nvs, "AWS_clientID", AWS_clientID, &buf_len));
+	buf_len=CERT_BUF_LEN;
+	ESP_ERROR_CHECK(nvs_get_str(h_nvs, "AWS_rootCA", aws_root_ca_pem, &buf_len));
+	buf_len=CERT_BUF_LEN;
+	ESP_ERROR_CHECK(nvs_get_str(h_nvs, "Thing_crt", certificate_pem_crt, &buf_len));
+	buf_len=CERT_BUF_LEN;
+	ESP_ERROR_CHECK(nvs_get_str(h_nvs, "Thing_key", private_pem_key, &buf_len));
+	nvs_close(h_nvs);
+
+	ESP_LOGI(TAG_MAIN, "Parameters loaded from flash memory");
+}
 //-----------------------------------------------------------------------------
 void app_main(void)
 {
@@ -42,26 +80,20 @@ void app_main(void)
 		ESP_LOGW(TAG_MAIN, "Strange boot reason detected");
 	}
 
-	ESP_ERROR_CHECK(nvs_flash_init());
-	ESP_LOGI(TAG_MAIN, "Flash initialized");
+	load_parameters_from_nvs();
+
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
 	ESP_LOGI(TAG_MAIN, "Event loop created");
 	events_group = xEventGroupCreate();
-
-	nvs_handle_t my_handle;
-	unsigned int len = 32;
-	ESP_ERROR_CHECK(nvs_open("PARAMETERS", NVS_READWRITE, &my_handle));
-	ESP_ERROR_CHECK(nvs_get_str(my_handle, "WiFi_SSID", WIFI_SSID, &len));
-	len = 64;
-	ESP_ERROR_CHECK(nvs_get_str(my_handle, "WiFi_Password", WIFI_PASSWORD, &len));
-	ESP_LOGI(TAG_MAIN, "NVS SSID: '%s'", WIFI_SSID);
-	ESP_LOGI(TAG_MAIN, "NVS PASS: '%s'", WIFI_PASSWORD);
-	nvs_close(my_handle);
+	data_queue = xQueueCreate(QUEUE_LENGTH, QUEUE_ITEM_SIZE);
 
 	blink_start(BLINK_SLOW);
 
 	wifi_start();
 
 	sensors_start();
+
+	aws_start();
 }
 //-----------------------------------------------------------------------------
+

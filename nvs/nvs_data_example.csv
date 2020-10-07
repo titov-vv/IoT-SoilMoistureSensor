@@ -3,3 +3,9 @@ key,type,encoding,value
 PARAMETERS,namespace,,
 WiFi_SSID,data,string,<wifi_ssid>
 WiFi_Password,data,string,<wifi_password>
+AWS_host,data,string,<thing_id>.iot.us-east-2.amazonaws.com
+AWS_port,data,u16,8883
+AWS_clientID,data,string,<thing_name>
+AWS_rootCA,file,string,./AmazonRootCA1.pem
+Thing_crt,file,string,./<thing>-certificate.pem.crt
+Thing_key,file,string,./<thing>-private.pem.key
