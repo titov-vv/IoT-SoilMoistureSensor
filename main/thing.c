@@ -57,8 +57,9 @@ void poll_sensor_and_update(AWS_IoT_Client *client)
 			measurement.moisture, measurement.temperature, measurement.humidity);
 
 	// Create JSON to publish into sensor_topic[]
-	// { "moisture": 2.34, "temperature": 10.2, "humidity": 60.3, "timestamp" xxxxxx }
+	// { "sensor": "Sensor_MH_2", "moisture": 2.34, "temperature": 10.2, "humidity": 60.3, "timestamp" xxxxxx }
 	root = cJSON_CreateObject();
+	cJSON_AddStringToObject(root, "sensor", AWS_clientID);
 	cJSON_AddNumberToObject(root, "moisture", measurement.moisture);
 	cJSON_AddNumberToObject(root, "temperature", measurement.temperature);
 	cJSON_AddNumberToObject(root, "humidity", measurement.humidity);
