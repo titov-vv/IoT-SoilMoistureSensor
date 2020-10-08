@@ -406,18 +406,12 @@ void aws_topics_setup()
 	aws_combine_topic_name(delta_topic, "$aws/things/", "/shadow/update/delta");
 	aws_combine_topic_name(accepted_topic, "$aws/things/", "/shadow/update/accepted");
 	aws_combine_topic_name(rejected_topic, "$aws/things/", "/shadow/update/rejected");
-	aws_combine_topic_name(sensor_topic, "main/sensor/", "");
+	strcpy(sensor_topic, "main/sensor/MoistureSensor");
 }
 //-----------------------------------------------------------------------------
 void aws_start()
 {
 	aws_topics_setup();
-	ESP_LOGI(TAG_AWS, "Names for topics were initialized.");
-	ESP_LOGI(TAG_AWS, "update: %s", update_topic);
-	ESP_LOGI(TAG_AWS, "delta: %s", delta_topic);
-	ESP_LOGI(TAG_AWS, "accepted: %s", accepted_topic);
-	ESP_LOGI(TAG_AWS, "rejected: %s", rejected_topic);
-	ESP_LOGI(TAG_AWS, "sensor: %s", sensor_topic);
 
 	xTaskCreate(aws_iot_task, "aws_iot_task", 20480, (void *)0, 5, NULL);
 }

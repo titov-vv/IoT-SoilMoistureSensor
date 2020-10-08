@@ -11,7 +11,7 @@
 #include "esp_sleep.h"
 #include "esp_log.h"
 #include "esp_sntp.h"
-#include "tcpip_adapter.h"
+#include "esp_netif.h"
 //-----------------------------------------------------------------------------
 static int	wifi_retry = 0;
 //-----------------------------------------------------------------------------
@@ -23,6 +23,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 		{
 		case WIFI_EVENT_STA_START:
 			ESP_LOGI(TAG_WIFI, "Connecting...");
+			esp_wifi_connect();
 			xEventGroupClearBits(events_group, IP_UP_BIT);
 			xEventGroupSetBits(events_group, WIFI_LOST_BIT);
 			break;
@@ -47,7 +48,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 		case IP_EVENT_STA_GOT_IP:
 			xEventGroupSetBits(events_group, IP_UP_BIT);
 			xEventGroupClearBits(events_group, WIFI_LOST_BIT);
-			ESP_LOGI(TAG_WIFI, "Received IP: %s", ip4addr_ntoa(&((ip_event_got_ip_t*)event_data)->ip_info.ip));
+			ESP_LOGI(TAG_WIFI, "Received IP: " IPSTR "\n",  IP2STR(&((ip_event_got_ip_t*)event_data)->ip_info.ip));
 			break;
 		}
 	}
@@ -81,6 +82,8 @@ void wifi_and_ntp_task(void *arg)
 	struct tm timeinfo;
 	char strftime_buf[64];
 	EventBits_t uxBits;
+	wifi_init_config_t wifi_init_cfg = WIFI_INIT_CONFIG_DEFAULT();
+
 
 	ESP_LOGI(TAG_WIFI, "Initialization started");
 	setenv("TZ", DEVICE_TIMEZONE, 1);
@@ -90,8 +93,8 @@ void wifi_and_ntp_task(void *arg)
 	strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
 	ESP_LOGI(TAG_WIFI, "Current time: %s", strftime_buf);
 
-	tcpip_adapter_init();
-	wifi_init_config_t wifi_init_cfg = WIFI_INIT_CONFIG_DEFAULT();
+	ESP_ERROR_CHECK(esp_netif_init());
+	esp_netif_create_default_wifi_sta();
 	ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_cfg));
 
 // ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
@@ -102,6 +105,9 @@ void wifi_and_ntp_task(void *arg)
 	wifi_config_t wifi_cfg;
 	strcpy((char *)wifi_cfg.sta.ssid, (char *)WIFI_SSID);
 	strcpy((char *)wifi_cfg.sta.password, (char *)WIFI_PASSWORD);
+	wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+	wifi_cfg.sta.pmf_cfg.capable = true;
+	wifi_cfg.sta.pmf_cfg.required = false;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_cfg));
@@ -148,6 +154,9 @@ void wifi_and_ntp_task(void *arg)
 	    ESP_LOGW(TAG_WIFI, "WiFi connection lost");
 	    xEventGroupClearBits(events_group, READY_BIT);
 	}
+
+	ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler));
+	ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler));
 }
 //-----------------------------------------------------------------------------
 void wifi_start()
